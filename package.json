@@ -23,7 +23,7 @@
     "fast-safe-stringify": "^2.0.7",
     "graphql": "^14.5.6",
     "graphql-tag": "^2.10.1",
-    "knex": "^0.19.4",
+    "knex": "^0.19.5",
     "lodash": "^4.17.15",
     "mocha": "^6.2.2",
     "node-fetch": "^2.6.0",
