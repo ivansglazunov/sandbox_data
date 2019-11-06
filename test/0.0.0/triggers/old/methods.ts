@@ -11,8 +11,8 @@ import fetch from 'node-fetch';
 import fastSafeStringify from 'fast-safe-stringify';
 import uniqid from 'uniqid';
 
-import { generateApolloClient } from '../../../imports/apollo';
-import { generateKnex } from '../../../imports/knex';
+import { generateApolloClient } from '../../../../imports/apollo';
+import { generateKnex } from '../../../../imports/knex';
 
 export const client = generateApolloClient();
 export const knex = generateKnex();
@@ -23,21 +23,75 @@ export const clear = async () => {
   await knex.raw(`DELETE FROM "links_indexes";`);
 };
 
-export const node = async (nodeId): Promise<string> => {
-  await knex.raw(`INSERT INTO "nodes" ("id") VALUES ('${nodeId}') RETURNING id;`);
-  return nodeId;
+export const prepareNodes = async (count: number) => {
+  return await client.mutate({
+    mutation: gql`mutation PREPARE_NODES($objects: [nodes_insert_input!]!) {
+      nodes: insert_nodes(objects: $objects) { returning { id } }
+    }`,
+    variables: {
+      objects: _.times(count, () => ({ id: `${uniqid()}` })),
+    }
+  });
 };
 
-export const link = async (sourceId, targetId): Promise<number> => {
-  return (await knex.raw(`INSERT INTO "links" ("source_id", "target_id", "type_id") VALUES ('${sourceId}', '${targetId}', 1) RETURNING id;`)).rows[0].id;
+export const prepareLinks = async (
+  data: IData,
+  count: number,
+  selectPossibleTargets = selectSafetyLinksFrom,
+  getRandomNodeIndex?,
+  getRandomSafetyTarget?,
+) => {
+  const objects = [];
+  const randomNodeIndexes = [];
+  const randomSafetyTargets = [];
+
+  // console.log(getRandomNodeIndex.toString());
+  // console.log(getRandomSafetyTarget.toString());
+
+  for (let i = 0; i < count; i++) {
+    const r1 = getRandomNodeIndex(data.nodes, i);
+    randomNodeIndexes.push(r1);
+    const n = data.nodes[r1];
+    const possibleTargets = await selectPossibleTargets(data, n);
+    if (!possibleTargets.length) throw new Error('!possibleTargets.length');
+    const r2 = getRandomSafetyTarget(possibleTargets, i);
+    randomSafetyTargets.push(r2);
+    await linkIt(n.id, possibleTargets[r2].id);
+  }
+
+  await client.mutate({
+    mutation: gql`mutation PREPARE_LINKS($objects: [links_insert_input!]!) {
+      links: insert_links(objects: $objects) { returning { id } }
+    }`,
+    variables: {
+      objects,
+    }
+  });
+
+  return [randomNodeIndexes, randomSafetyTargets];
 };
 
-export const unnode = async (nodeId: string) => {
-  await knex.raw(`DELETE FROM "nodes" WHERE "id" = '${nodeId}';`);
-};
+export const selectSafetyLinksFromSQL = (nodeId) => `
+SELECT "nodes"."id"
+FROM "nodes"
+WHERE
+"nodes"."id" != '${nodeId}' AND
+"nodes"."id" NOT IN (
+  SELECT "l1"."target_id"
+  FROM "links" as "l1"
+  WHERE "l1"."source_id" = '${nodeId}'
+) AND
+"nodes"."id" NOT IN (
+  SELECT "li1"."index_node_id"
+  FROM "links_indexes" as "li1"
+  WHERE
+  "li1"."list_node_id" = '${nodeId}' AND
+  "li1"."index_node_id" != '${nodeId}'
+);
+`;
 
-export const unlink = async (linkId: number) => {
-  await knex.raw(`DELETE FROM "links" WHERE "id" = '${linkId}';`);
+export const selectSafetyLinksFrom = async (data, node) => {
+  return (await knex.raw(selectSafetyLinksFromSQL(node.id))).rows;
 };
 
 export interface IData {
@@ -67,7 +121,6 @@ export interface ILink {
   node_id?: string;
   node?: INode;
   type_id?: number;
-  indexes?: IIndex[];
 }
 
 export interface IIndex {
@@ -79,12 +132,29 @@ export interface IIndex {
   depth: number;
 }
 
-export interface IError {
-  nodes?: INode[];
-  links?: ILink[];
-  indexes?: IIndex[];
-  messages: string[];
-}
+export const load = async (): Promise<IData> => {
+  const nodes: INode[] = (await knex.raw(`SELECT * FROM "nodes";`)).rows;
+  const links: ILink[] = (await knex.raw(`SELECT * FROM "links";`)).rows;
+  const indexes: IIndex[] = (await knex.raw(`SELECT * FROM "links_indexes";`)).rows;
+
+  const data: IData = {
+    nodes, links, indexes,
+    _nodes: {}, _links: {}, _indexes: {},
+  };
+
+  return data;
+};
+
+export const linkIt = async (sourceId, targetId) => {
+  await client.mutate({
+    mutation: gql`mutation PREPARE_LINKS($objects: [links_insert_input!]!) {
+      links: insert_links(objects: $objects) { returning { id } }
+    }`,
+    variables: {
+      objects: { source_id: sourceId, target_id: targetId, type_id: 1 },
+    }
+  });
+};
 
 export const linking = (_data) => {
   const data = { ..._data };
@@ -120,36 +190,26 @@ export const linking = (_data) => {
     data._indexes[data.indexes[i0].id] = index;
     if (index.index_link_id) {
       index.link = data._links[index.index_link_id];
-      if (data._links[index.index_link_id]) {
-        data._links[index.index_link_id].indexes.push(index);
-      }
+      data._links[index.index_link_id].indexes.push(index);
     }
-    if (data._nodes[index.index_node_id]) {
-      if (index.index_node_id) {
-        index.index_node = data._nodes[index.index_node_id];
-        data._nodes[index.index_node_id].indexes_by_index.push(index);
-      }
-      if (index.list_node_id) {
-        index.list_node = data._nodes[index.list_node_id];
-        data._nodes[index.list_node_id].indexes_by_list.push(index);
-      }
+    if (index.index_node_id) {
+      index.index_node = data._nodes[index.index_node_id];
+      data._nodes[index.index_node_id].indexes_by_index.push(index);
+    }
+    if (index.list_node_id) {
+      index.list_node = data._nodes[index.list_node_id];
+      data._nodes[index.list_node_id].indexes_by_list.push(index);
     }
   }
   return data;
 };
 
-export const load = async (): Promise<IData> => {
-  const nodes: INode[] = (await knex.raw(`SELECT * FROM "nodes";`)).rows;
-  const links: ILink[] = (await knex.raw(`SELECT * FROM "links";`)).rows;
-  const indexes: IIndex[] = (await knex.raw(`SELECT * FROM "links_indexes";`)).rows;
-
-  const data: IData = {
-    nodes, links, indexes,
-    _nodes: {}, _links: {}, _indexes: {},
-  };
-
-  return linking(data);
-};
+export interface IError {
+  nodes?: INode[];
+  links?: ILink[];
+  indexes?: IIndex[];
+  messages: string[];
+}
 
 export const check = (data: IData, errors: IError[] = []) => {
   for (let i0 = 0; i0 < data.nodes.length; i0++) {
@@ -173,29 +233,19 @@ export const check = (data: IData, errors: IError[] = []) => {
     if (error.messages.length) errors.push(error);
   }
 
-  for (let i0 = 0; i0 < data.links.length; i0++) {
-    const link = data.links[i0];
-    const error = { links: [link], messages: [] };
-    if (!link.indexes.length) error.messages.push('!link.indexes.length');
-    if (error.messages.length) errors.push(error);
-  }
-
-  if (data.indexes.length && !data.nodes.length) errors.push({ messages: ['indexes.length && !nodes.length'] });
-  if (!data.indexes.length && data.nodes.length) errors.push({ messages: ['!indexes.length && nodes.length'] });
-
   return errors;
 };
 
-export const assert = (name, data, errors) => {
+export const assert = (name, data, errors, randoms) => {
   fs.writeFileSync(
     `${__dirname}/${name}.log`,
-    fastSafeStringify({ errors, data }),
+    fastSafeStringify({ errors, randoms }),
   );
   if (errors.length) throw new Error('errors.length != 0');
 };
 
-export const autoAssert = async (name) => {
-  const data = await load();
-  const errors = check(data);
-  assert(name, data, errors);
+export const loadRandoms = (name) => {
+  if (!fs.existsSync(`${__dirname}/${name}.log`)) return;
+  const file = fs.readFileSync(`${__dirname}/${name}.log`);
+  return JSON.parse(file.toString()).randoms;
 };

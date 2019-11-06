@@ -263,17 +263,84 @@ export const F_LINK_DELETE_UP = `
   THEN
     IF EXISTS (${WILL_NOT_ROOT('OLD."target_id"')})
     THEN
-      DELETE FROM "links_indexes"
-      WHERE "id" IN (
+      FOR sl0
+      IN (
         SELECT
-        tli0."id"
+        DISTINCT sl0."list_id",
+        sl0."depth"
         FROM
-        "links_indexes" as til0,
-        "links_indexes" as tli0
+        "links_indexes" as sl0
         WHERE
-        til0."index_link_id" = OLD."id" AND
-        tli0."list_id" = til0."list_id"
-      );
+        sl0."list_node_id" = OLD."source_id" AND
+        sl0."index_node_id" = OLD."source_id"
+      )
+      LOOP
+        DELETE FROM "links_indexes"
+        WHERE
+        /* удалются те индексы которые в нужных списках */
+        "list_id" IN (
+          /* находятся нужные list_id ? */
+          SELECT r."list_id" FROM
+          (
+              SELECT
+              tsli0."list_id",
+              tsli0."list_node_id",
+              (
+                  /* подсчет всех найденных индексов у которых list_id совпадает  */
+                  SELECT COUNT(tli1."id")
+                  FROM "links_indexes" as tli1
+                  WHERE tli1."list_id" = tl1."list_id"
+              ) as "targetCount",
+              COUNT(tsli0."id") as "count"
+              FROM
+              (
+                  SELECT *
+                  FROM
+                  (
+                      SELECT
+                      tli1."list_id",
+                      tli1."list_node_id",
+                      COUNT(tli1."id") as "tli1"
+                      FROM
+                      "links_indexes" as sli0,
+                      "links_indexes" as tli0,
+                      "links_indexes" as tli1
+                      WHERE
+                      /* все списки индексов сорса */
+                      sli0."list_id" = sl0."list_id" AND
+
+                      /* те индексы что были проброшены по конкретно этой удаляемой связи */
+                      tli0."list_node_id" = OLD."target_id" AND
+                      tli0."index_link_id" = OLD."id" AND
+
+                      /* все индексы в подходящих под удаление списках */
+                      tli1."list_id" = tli0."list_id"
+                      GROUP BY tli1."list_id", tli1."list_node_id"
+                  ) as tl0,
+                  (
+                      SELECT
+                      COUNT(sli0."id")
+                      FROM
+                      "links_indexes" as sli0
+                      WHERE
+                      sli0."list_id" = sl0."list_id"
+                  ) as sli0
+                  WHERE
+                  tl0."tli1" = sli0."count"
+              ) as tl1,
+              "links_indexes" as tli0,
+              "links_indexes" as tsli0
+              WHERE
+              tli0."list_id" = tl1."list_id" AND
+              tsli0."index_node_id" = tli0."index_node_id" AND
+              tsli0."depth" = tli0."depth"
+              GROUP BY tsli0."list_id", tsli0."list_node_id", tl1."list_id"
+          ) as r
+          WHERE
+          /* те у кого "количества" совпадают ??? */
+          r."targetCount" = r."count"
+        );
+      END LOOP;
     ELSE
       SELECT *
       INTO sourceIgnoreListId
@@ -284,7 +351,7 @@ export const F_LINK_DELETE_UP = `
       sili0."index_node_id" = OLD."source_id"
       LIMIT 1;
 
-      FOR sourceListId
+      FOR sl0
       IN (
         SELECT
         DISTINCT sl0."list_id",
@@ -323,10 +390,10 @@ export const F_LINK_DELETE_UP = `
                       "links_indexes" as sli0,
                       "links_indexes" as tl0
                       WHERE
-                      sli0."list_id" = sourceListId."list_id" AND
+                      sli0."list_id" = sl0."list_id" AND
                       tl0."list_node_id" = OLD."target_id" AND
                       tl0."index_node_id" = sli0."index_node_id" AND
-                      /* tl0."list_id" = sli0."list_id" AND */
+                      tl0."list_id" = sli0."list_id" AND
                       tl0."depth" = sli0."depth"
                       GROUP BY tl0."list_id", tl0."list_node_id"
                   ) as tl0,
@@ -336,7 +403,7 @@ export const F_LINK_DELETE_UP = `
                       FROM
                       "links_indexes" as sli0
                       WHERE
-                      sli0."list_id" = sourceListId."list_id"
+                      sli0."list_id" = sl0."list_id"
                   ) as sli0
                   WHERE
                   tl0."tl0" = sli0."count"

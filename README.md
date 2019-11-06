@@ -23,3 +23,11 @@ WHERE
 "li1"."list_node_id" = '${nodeId}' AND
 "li1"."index_node_id" != '${nodeId}';
 ```
+
+#### find all children
+
+```sql
+SELECT "l1"."target_id"
+FROM "links" as "l1"
+WHERE "l1"."source_id" = '${nodeId}'
+```

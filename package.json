@@ -3,7 +3,7 @@
   "scripts": {
     "migrate": "knex migrate:latest --verbose",
     "unmigrate": "knex migrate:rollback --all --verbose",
-    "test": "ts-mocha --project ./tsconfig.mocha.json test/index.ts"
+    "test": "ts-mocha --timeout 100000 --project ./tsconfig.mocha.json test/index.ts"
   },
   "keywords": [],
   "author": "",

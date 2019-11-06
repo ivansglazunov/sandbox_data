@@ -13,62 +13,147 @@ import uniqid from 'uniqid';
 
 import { generateApolloClient } from '../../../imports/apollo';
 import { generateKnex } from '../../../imports/knex';
+import { clear, node, load, check, assert, link, autoAssert, unnode, unlink } from './methods';
 
-import { prepareNodes, linking, load, check, prepareLinks, assert, clear, loadRandoms } from './methods';
+export const client = generateApolloClient();
+export const knex = generateKnex();
 
 describe('triggers', function() {
-  this.timeout(100000);
+  beforeEach(clear);
+  // afterEach(clear);
 
-  beforeEach(async () => {
-    await clear();
+  it(`n1`, async function() {
+    const n1 = await node(uniqid());
+    await autoAssert(this.test.title);
+    await unnode(n1);
+    await autoAssert(this.test.title);
   });
-  // afterEach(async () => {
-  //   await clear();
-  // });
-
-  it.skip('nodes', async () => {
-    await prepareNodes(100);
-    const data = linking(await load());
-    const errors = await check(data);
-    assert('nodes', data, errors, []);
+  it(`n1>n2`, async function() {
+    const n1 = await node(uniqid());
+    const n2 = await node(uniqid());
+    const l1 = await link(n1, n2);
+    await autoAssert(this.test.title);
+    await unlink(l1);
+    await autoAssert(this.test.title);
+    await unnode(n2);
+    await unnode(n1);
+    await autoAssert(this.test.title);
+  });
+  it(`n1>n2>n3`, async function() {
+    const n1 = await node(uniqid());
+    const n2 = await node(uniqid());
+    const n3 = await node(uniqid());
+    const l1 = await link(n1, n2);
+    const l2 = await link(n2, n3);
+    await autoAssert(this.test.title);
+    await unlink(l1);
+    await unlink(l2);
+    await autoAssert(this.test.title);
+    await unnode(n3);
+    await unnode(n2);
+    await unnode(n1);
+    await autoAssert(this.test.title);
+  });
+  it(`n1>n2>n3,n4`, async function() {
+    const n1 = await node(uniqid());
+    const n2 = await node(uniqid());
+    const n3 = await node(uniqid());
+    const n4 = await node(uniqid());
+    const l1 = await link(n1, n2);
+    const l2 = await link(n2, n3);
+    const l3 = await link(n2, n4);
+    await autoAssert(this.test.title);
+    await unlink(l1);
+    await unlink(l2);
+    await unlink(l3);
+    await autoAssert(this.test.title);
+    await unnode(n4);
+    await unnode(n3);
+    await unnode(n2);
+    await unnode(n1);
+    await autoAssert(this.test.title);
+  });
+  it(`n1>(n2>n3,n4),(n5>n6,n7)`, async function() {
+    const n1 = await node(uniqid());
+    const n2 = await node(uniqid());
+    const n3 = await node(uniqid());
+    const n4 = await node(uniqid());
+    const n5 = await node(uniqid());
+    const n6 = await node(uniqid());
+    const n7 = await node(uniqid());
+    const l1 = await link(n1, n2);
+    const l2 = await link(n2, n3);
+    const l3 = await link(n2, n4);
+    const l4 = await link(n1, n5);
+    const l5 = await link(n5, n6);
+    const l6 = await link(n5, n7);
+    await autoAssert(this.test.title);
+    await unlink(l1);
+    await unlink(l2);
+    await unlink(l3);
+    await unlink(l4);
+    await unlink(l5);
+    await unlink(l6);
+    await autoAssert(this.test.title);
+    await unnode(n7);
+    await unnode(n6);
+    await unnode(n5);
+    await unnode(n4);
+    await unnode(n3);
+    await unnode(n2);
+    await unnode(n1);
+    await autoAssert(this.test.title);
   });
 
-  const randomSimpleTree = async function({
-    random: prevRandom = loadRandoms(this.test.title),
-  }: {
-    random?: any;
-  }) {
-    let data;
-
-    await prepareNodes(5);
-    data = linking(await load());
-
-    const _randoms = [
-      [ 0, 1, 3, 1 ],
-      [ 1, 0, 0, 1, 1, 2, 1, 3 ],
-    ];
-
-    const randoms = await prepareLinks(
-      data, 4,
-      ...(prevRandom ? [
-        (nodes, i) => prevRandom[0][i],
-        (safetyTargets, i) => prevRandom[1][i],
-      ] : []),
-    );
-
-    data = linking(await load());
-
-    const errors = await check(data);
-    assert(this.test.title, data, errors, randoms);
-  };
-
-  it('simple-tree-[[0,1,3,1],[1,0,0,1,1,2,1,3]]', async function() {
-    await randomSimpleTree.call(this, { random: [[0,1,3,1],[1,0,0,1,1,2,1,3]] });
+  it(`n1>n2>n3*3`, async function() {
+    const n1 = await node(uniqid());
+    const n2 = await node(uniqid());
+    const n3 = await node(uniqid());
+    const l1 = await link(n1, n2);
+    const l2 = await link(n2, n3);
+    const l3 = await link(n2, n3);
+    const l4 = await link(n2, n3);
+    await autoAssert(this.test.title);
+    await unlink(l1);
+    await unlink(l2);
+    await unlink(l3);
+    await unlink(l4);
+    await autoAssert(this.test.title);
+    await unnode(n3);
+    await unnode(n2);
+    await unnode(n1);
+    await autoAssert(this.test.title);
   });
 
-  // for (let i = 0; i < 10; i++) {
-  //   it(`simple-tree ${i}`, async function() {
-  //     await randomSimpleTree.call(this, {});
-  //   });
-  // }
+  it(`(n1>n2>n3),(n4>n5>n3),(n6>n7>n3)`, async function() {
+    const n1 = await node(uniqid());
+    const n2 = await node(uniqid());
+    const n3 = await node(uniqid());
+    const n4 = await node(uniqid());
+    const n5 = await node(uniqid());
+    const n6 = await node(uniqid());
+    const n7 = await node(uniqid());
+    const l1 = await link(n1, n2);
+    const l2 = await link(n2, n3);
+    const l3 = await link(n4, n5);
+    const l4 = await link(n5, n3);
+    const l5 = await link(n6, n7);
+    const l6 = await link(n7, n3);
+    await autoAssert(this.test.title);
+    await unlink(l1);
+    await unlink(l2);
+    await unlink(l3);
+    await unlink(l4);
+    await unlink(l5);
+    await unlink(l6);
+    await autoAssert(this.test.title);
+    await unnode(n7);
+    await unnode(n6);
+    await unnode(n5);
+    await unnode(n4);
+    await unnode(n3);
+    await unnode(n2);
+    await unnode(n1);
+    await autoAssert(this.test.title);
+  });
 });
